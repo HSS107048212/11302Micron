@@ -17,5 +17,4 @@
    ```
    $ streamlit run streamlit_app.py
    ```
-3. Demo for the dashboard
-[https://drive.google.com/file/d/11TSATPtZccNXFJ6hVjYKVM65LFJoJ323/view?usp=sharing](https://drive.google.com/file/d/1j9sEsLbXsXvSKhmG9doFvdd2p8I08VRj/view?usp=sharing)
+3. Demo for the dashboard https://drive.google.com/file/d/1j9sEsLbXsXvSKhmG9doFvdd2p8I08VRj/view?usp=drive_link
