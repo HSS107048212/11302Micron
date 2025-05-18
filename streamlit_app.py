@@ -54,39 +54,56 @@ data = pd.DataFrame({
     "Country_Risk_Index": np.round(np.random.uniform(0.1, 1.0, size=240), 2),
 })
 
-# KPI 計算
+# — 基本 KPI 計算 —
 data["Forecast_Accuracy"] = (1 - abs(data["Forecast"] - data["Actual"]) / data["Actual"]) * 100
 data["Supply_Adherence_%"] = (data["Delivered_Supply_Units"] / data["Planned_Supply_Units"]) * 100
-data["Capacity_Utilization_%"] = (data["Units_Produced"] / (data["Machine/Shift_Hours_Available"] * data["Std_Prod_Rate"])) * 100
+data["Capacity_Utilization_%"] = (
+    data["Units_Produced"] /
+    (data["Machine/Shift_Hours_Available"] * data["Std_Prod_Rate"])
+) * 100
 data["Ramp_Up_Time_Days"] = (data["Date_Target_Capacity_Achieved"] - data["Date_Ramp_Trigger"]).dt.days
 data["Is_Dual_Sourced"] = data["#_Approved_Suppliers_Per_SKU"] >= 2
-data["Risk_Adjusted_Lead_Time"] = (data["Lead_Time_Days"] * data["Supplier_Risk_Score"]) / data["Supplier_Risk_Score"]
-dual_sourcing_ratio = data.groupby("Date")["Is_Dual_Sourced"].mean().mul(100).reset_index().rename(columns={"Is_Dual_Sourced": "%_Dual_Sourcing"})
+data["Risk_Adjusted_Lead_Time"] = data["Lead_Time_Days"]  # 示例中乘除後相同
 
+# — 新增三個模擬指標 —
+data["Score_of_News"] = np.round(np.random.uniform(0, 1, size=len(data)), 2)
+data["Score_of_Social_Media"] = np.round(np.random.uniform(0, 1, size=len(data)), 2)
+data["Audit_Score"] = np.round(np.random.uniform(0, 1, size=len(data)), 2)
+
+# — 雙源採購比率 —
+dual_sourcing_ratio = (
+    data.groupby("Date")["Is_Dual_Sourced"]
+    .mean()
+    .mul(100)
+    .reset_index()
+    .rename(columns={"Is_Dual_Sourced": "%_Dual_Sourcing"})
+)
+
+# — 合併地理位置 —
 data = data.merge(supplier_location_df, on="Supplier", how="left")
 
-# 分頁順序
-tab4, tab2, tab3, tab1 = st.tabs([
+# — 分頁順序（五個 Tab） —
+tab4, tab2, tab3, tab1, tab5 = st.tabs([
     "📍 Overview",
-    "📋 Supplier Data ",
+    "📋 Supplier Data",
     "📋 KPI Charts",
-    "🗺️ Risk Map"
+    "🗺️ Risk Map",
+    "📰 Political Issues News"
 ])
 
-# Tab 4: Location Table + Map
+# Tab 4: Location Table
 with tab4:
     st.title("📍 Supplier overview")
     st.dataframe(supplier_location_df, use_container_width=True)
-    
 
-# Tab 2: Overview Table
+# Tab 2: KPI Data Overview
 with tab2:
     st.title("📋 Supplier KPI Data Overview")
     selected_supplier = st.selectbox("Select Supplier", ["All"] + suppliers)
-    df_filtered = data.copy() if selected_supplier == "All" else data[data["Supplier"] == selected_supplier]
+    df_filtered = data if selected_supplier == "All" else data[data["Supplier"] == selected_supplier]
     st.dataframe(df_filtered.reset_index(drop=True), use_container_width=True)
 
-# Tab 3: KPI Charts
+# Tab 3: KPI 時序圖
 with tab3:
     st.title("📈 Time Series KPI Visualization")
     kpi_options = [
@@ -114,35 +131,69 @@ with tab3:
     ax.grid(True)
     st.pyplot(fig)
 
-# Tab 1: Risk Map
+# Tab 1: 風險地圖
 with tab1:
     st.title("🌍 Supplier Geopolitical Risk Map")
     latest_date = data["Date"].max()
     latest_data = data[data["Date"] == latest_date].copy()
 
+    # — 考量新指標的加權風險分數計算 —
     latest_data["Risk_Score"] = (
-        (1 - latest_data["Supplier_geographic_diversity_index"]) * 0.3 +
-        (1 - latest_data["Critical_suppliers_with_mitigation_%"]) * 0.3 +
-        latest_data["Production_in_high_risk_areas_%"] * 0.3 +
-        (4 - latest_data["Frequency_of_risk_assessments"]) / 4 * 0.1
+          (1 - latest_data["Supplier_geographic_diversity_index"]) * 0.25
+        + (1 - latest_data["Critical_suppliers_with_mitigation_%"]) * 0.25
+        +  latest_data["Production_in_high_risk_areas_%"] * 0.20
+        + ((4 - latest_data["Frequency_of_risk_assessments"]) / 4) * 0.10
+        + (1 - latest_data["Score_of_News"]) * 0.05
+        + (1 - latest_data["Score_of_Social_Media"]) * 0.10
+        + (1 - latest_data["Audit_Score"]) * 0.05
     )
 
     m = folium.Map(location=[30, 110], zoom_start=3)
     marker_cluster = MarkerCluster().add_to(m)
     for _, row in latest_data.iterrows():
-        popup = folium.Popup(
-            f"<b>{row['Supplier']}</b><br>"
-            f"Risk Score: {row['Risk_Score']:.2f}<br>"
-            f"High Risk Production %: {row['Production_in_high_risk_areas_%']:.2f}<br>"
-            f"Mitigation %: {row['Critical_suppliers_with_mitigation_%']:.2f}<br>",
-            max_width=250
+        color = (
+            "red" if row["Risk_Score"] > 0.6
+            else "orange" if row["Risk_Score"] > 0.4
+            else "green"
         )
+        popup_html = (
+            f"<b><span style='color:{color}'>{row['Supplier']}</span></b><br>"
+            f"<span style='color:{color}'>Risk Score: {row['Risk_Score']:.2f}</span><br>"
+            f"High Risk Production %: {row['Production_in_high_risk_areas_%']:.2f}<br>"
+            f"Mitigation %: {row['Critical_suppliers_with_mitigation_%']:.2f}<br>"
+            f"News Score: {row['Score_of_News']:.2f}<br>"
+            f"Social Media Score: {row['Score_of_Social_Media']:.2f}<br>"
+            f"Audit Score: {row['Audit_Score']:.2f}<br>"
+        )
+        popup = folium.Popup(popup_html, max_width=250)
         folium.CircleMarker(
             location=[row["Latitude"], row["Longitude"]],
             radius=8,
-            color="red" if row["Risk_Score"] > 0.6 else "orange" if row["Risk_Score"] > 0.4 else "green",
+            color=color,
             fill=True,
             fill_opacity=0.7,
             popup=popup
         ).add_to(marker_cluster)
+
     st_folium(m, width=1000, height=600)
+
+# Tab 5: 顯示政治議題新聞 Excel（含 City 下拉選單過濾）
+with tab5:
+    st.title("📰 Political Issues")
+
+    # 讀取資料
+    news_df = pd.read_excel("news_Supply_Chain_Political_Issues.xlsx")
+
+    # 建立下拉選單：City
+    cities = news_df["city"].dropna().unique().tolist()
+    selected_city = st.selectbox("Select City", ["All"] + cities)
+
+    # 根據所選 City 過濾
+    if selected_city != "All":
+        filtered_df = news_df[news_df["city"] == selected_city]
+    else:
+        filtered_df = news_df
+
+    # 顯示過濾後的 DataFrame
+    st.dataframe(filtered_df.reset_index(drop=True), use_container_width=True)
+
