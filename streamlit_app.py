@@ -63,7 +63,7 @@ data["Capacity_Utilization_%"] = (
 ) * 100
 data["Ramp_Up_Time_Days"] = (data["Date_Target_Capacity_Achieved"] - data["Date_Ramp_Trigger"]).dt.days
 data["Is_Dual_Sourced"] = data["#_Approved_Suppliers_Per_SKU"] >= 2
-data["Risk_Adjusted_Lead_Time"] = data["Lead_Time_Days"]  # 示例中乘除後相同
+data["Risk_Adjusted_Lead_Time"] = data["Lead_Time_Days"]
 
 # — 新增三個模擬指標 —
 data["Score_of_News"] = np.round(np.random.uniform(0, 1, size=len(data)), 2)
@@ -81,6 +81,16 @@ dual_sourcing_ratio = (
 
 # — 合併地理位置 —
 data = data.merge(supplier_location_df, on="Supplier", how="left")
+
+# — 新增 country-level KPI 模擬 —
+countries = data["Country/Region"].unique()
+country_kpi = pd.DataFrame({
+    "Country/Region": countries,
+    "Political_instability": np.round(np.random.uniform(0, 1, size=len(countries)), 2),
+    "Tariff_restrictions_imports": np.round(np.random.uniform(0, 1, size=len(countries)), 2),
+    "Tariff_restrictions_exports": np.round(np.random.uniform(0, 1, size=len(countries)), 2),
+})
+data = data.merge(country_kpi, on="Country/Region", how="left")
 
 # — 分頁順序（五個 Tab） —
 tab4, tab2, tab3, tab1, tab5 = st.tabs([
@@ -137,15 +147,20 @@ with tab1:
     latest_date = data["Date"].max()
     latest_data = data[data["Date"] == latest_date].copy()
 
-    # — 考量新指標的加權風險分數計算 —
+    # — 考量新指標的加權風險分數計算，包括三個國家層級 KPI —
     latest_data["Risk_Score"] = (
-          (1 - latest_data["Supplier_geographic_diversity_index"]) * 0.25
-        + (1 - latest_data["Critical_suppliers_with_mitigation_%"]) * 0.25
-        +  latest_data["Production_in_high_risk_areas_%"] * 0.20
-        + ((4 - latest_data["Frequency_of_risk_assessments"]) / 4) * 0.10
-        + (1 - latest_data["Score_of_News"]) * 0.05
-        + (1 - latest_data["Score_of_Social_Media"]) * 0.10
-        + (1 - latest_data["Audit_Score"]) * 0.05
+        (
+            (1 - latest_data["Supplier_geographic_diversity_index"]) * 0.25
+            + (1 - latest_data["Critical_suppliers_with_mitigation_%"]) * 0.25
+            + latest_data["Production_in_high_risk_areas_%"] * 0.20
+            + ((4 - latest_data["Frequency_of_risk_assessments"]) / 4) * 0.10
+            + (1 - latest_data["Score_of_News"]) * 0.05
+            + (1 - latest_data["Score_of_Social_Media"]) * 0.10
+            + (1 - latest_data["Audit_Score"]) * 0.05
+        ) * 0.70
+        + latest_data["Political_instability"] * 0.10
+        + latest_data["Tariff_restrictions_imports"] * 0.10
+        + latest_data["Tariff_restrictions_exports"] * 0.10
     )
 
     m = folium.Map(location=[30, 110], zoom_start=3)
@@ -158,16 +173,19 @@ with tab1:
         )
         popup_html = (
             f"<b><span style='color:{color}'>{row['Supplier']}</span></b><br>"
-            f"<span style='color:{color}'>Risk Score: {row['Risk_Score']:.2f}</span><br>"
-            f"High Risk Production %: {row['Production_in_high_risk_areas_%']:.2f}<br>"
+            "<b>Supplier-level KPI:</b><br>"
             f"Mitigation %: {row['Critical_suppliers_with_mitigation_%']:.2f}<br>"
             f"News Score: {row['Score_of_News']:.2f}<br>"
             f"Social Media Score: {row['Score_of_Social_Media']:.2f}<br>"
             f"Audit Score: {row['Audit_Score']:.2f}<br>"
+            "<b>Country-level KPI:</b><br>"
+            f"Political Instability: {row['Political_instability']:.2f}<br>"
+            f"Tariff Restrictions (Imports): {row['Tariff_restrictions_imports']:.2f}<br>"
+            f"Tariff Restrictions (Exports): {row['Tariff_restrictions_exports']:.2f}<br>"
         )
         popup = folium.Popup(popup_html, max_width=250)
         folium.CircleMarker(
-            location=[row["Latitude"], row["Longitude"]],
+            location=[row['Latitude'], row['Longitude']],
             radius=8,
             color=color,
             fill=True,
@@ -196,4 +214,3 @@ with tab5:
 
     # 顯示過濾後的 DataFrame
     st.dataframe(filtered_df.reset_index(drop=True), use_container_width=True)
-
